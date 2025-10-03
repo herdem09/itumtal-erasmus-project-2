@@ -1,0 +1,113 @@
+{% extends "base.html" %}
+
+{% block title %}Haftalık Analiz - Panel Veri Analizi{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-12">
+        <h1 class="mb-4">Haftalık Analiz</h1>
+        <p>Bir hafta seçin ve o haftadaki her günün watt ortalamasını görüntüleyin.</p>
+    </div>
+</div>
+
+<div class="row mb-4">
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-body">
+                <label for="weekStart" class="form-label">Hafta Başlangıç Tarihi:</label>
+                <input type="date" class="form-control" id="weekStart">
+                <button class="btn btn-primary mt-2" onclick="loadWeeklyData()">Verileri Yükle</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <h5>Haftalık Watt Ortalamaları</h5>
+            </div>
+            <div class="card-body">
+                <canvas id="weeklyChart" width="400" height="200"></canvas>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+let weeklyChart = null;
+
+function loadWeeklyData() {
+    const startDate = document.getElementById('weekStart').value;
+    if (!startDate) {
+        alert('Lütfen bir hafta başlangıç tarihi seçin!');
+        return;
+    }
+    
+    fetch(`/api/weekly_data/${startDate}`)
+        .then(response => response.json())
+        .then(data => {
+            if (data.error) {
+                alert('Hata: ' + data.error);
+                return;
+            }
+            
+            // Tarihleri sırala
+            const sortedDates = Object.keys(data).sort();
+            const values = sortedDates.map(date => data[date]);
+            
+            // Grafik oluştur veya güncelle
+            if (weeklyChart) {
+                weeklyChart.destroy();
+            }
+            
+            const ctx = document.getElementById('weeklyChart').getContext('2d');
+            weeklyChart = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: sortedDates,
+                    datasets: [{
+                        label: 'Günlük Watt Ortalaması',
+                        data: values,
+                        backgroundColor: 'rgba(54, 162, 235, 0.6)',
+                        borderColor: 'rgba(54, 162, 235, 1)',
+                        borderWidth: 1
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            title: {
+                                display: true,
+                                text: 'Watt'
+                            }
+                        },
+                        x: {
+                            title: {
+                                display: true,
+                                text: 'Tarih'
+                            }
+                        }
+                    }
+                }
+            });
+        })
+        .catch(error => {
+            console.error('Error:', error);
+            alert('Veri yüklenirken hata oluştu!');
+        });
+}
+
+// Sayfa yüklendiğinde bu haftanın başlangıcını varsayılan olarak ayarla
+document.addEventListener('DOMContentLoaded', function() {
+    const today = new Date();
+    const monday = new Date(today);
+    monday.setDate(today.getDate() - today.getDay() + 1); // Pazartesi
+    const mondayStr = monday.toISOString().split('T')[0];
+    document.getElementById('weekStart').value = mondayStr;
+});
+</script>
+{% endblock %}

@@ -1,0 +1,99 @@
+{% extends "base.html" %}
+
+{% block title %}Yıllık Analiz - Panel Veri Analizi{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-12">
+        <h1 class="mb-4">Yıllık Analiz</h1>
+        <p>Yıl boyunca 365 günün her birinin watt ortalaması ayrı ayrı gösterilir.</p>
+    </div>
+</div>
+
+<div class="row">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <h5>Günlük Watt Ortalamaları (Yıl Boyunca)</h5>
+            </div>
+            <div class="card-body">
+                <canvas id="yearlyChart" width="400" height="200"></canvas>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+let yearlyChart = null;
+
+function loadYearlyData() {
+    fetch('/api/yearly_data')
+        .then(response => response.json())
+        .then(data => {
+            if (data.error) {
+                alert('Hata: ' + data.error);
+                return;
+            }
+            
+            // Tarihleri sırala
+            const sortedDates = Object.keys(data).sort();
+            const values = sortedDates.map(date => data[date]);
+            
+            // Grafik oluştur veya güncelle
+            if (yearlyChart) {
+                yearlyChart.destroy();
+            }
+            
+            const ctx = document.getElementById('yearlyChart').getContext('2d');
+            yearlyChart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: sortedDates,
+                    datasets: [{
+                        label: 'Günlük Watt Ortalaması',
+                        data: values,
+                        borderColor: 'rgb(255, 99, 132)',
+                        backgroundColor: 'rgba(255, 99, 132, 0.2)',
+                        tension: 0.1
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            title: {
+                                display: true,
+                                text: 'Watt'
+                            }
+                        },
+                        x: {
+                            title: {
+                                display: true,
+                                text: 'Tarih'
+                            },
+                            ticks: {
+                                maxTicksLimit: 20 // Çok fazla tarih gösterilmesini engelle
+                            }
+                        }
+                    },
+                    plugins: {
+                        legend: {
+                            display: true
+                        }
+                    }
+                }
+            });
+        })
+        .catch(error => {
+            console.error('Error:', error);
+            alert('Veri yüklenirken hata oluştu!');
+        });
+}
+
+// Sayfa yüklendiğinde verileri yükle
+document.addEventListener('DOMContentLoaded', function() {
+    loadYearlyData();
+});
+</script>
+{% endblock %}

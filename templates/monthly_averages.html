@@ -1,0 +1,144 @@
+{% extends "base.html" %}
+
+{% block title %}Aylık Ortalamalar - Panel Veri Analizi{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-12">
+        <h1 class="mb-4">Aylık Ortalamalar</h1>
+        <p>Yıl boyunca her ayın ortalama watt değerini görüntüleyin.</p>
+    </div>
+</div>
+
+<div class="row mb-4">
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-body">
+                <label for="yearSelect" class="form-label">Yıl:</label>
+                <select class="form-control mb-2" id="yearSelect">
+                    <option value="2024">2024</option>
+                    <option value="2023">2023</option>
+                    <option value="2022">2022</option>
+                </select>
+                <button class="btn btn-primary" onclick="loadMonthlyAverages()">Verileri Yükle</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <h5>Aylık Watt Ortalamaları</h5>
+            </div>
+            <div class="card-body">
+                <canvas id="monthlyAveragesChart" width="400" height="200"></canvas>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+let monthlyAveragesChart = null;
+
+function loadMonthlyAverages() {
+    const year = document.getElementById('yearSelect').value;
+    
+    fetch(`/api/monthly_averages/${year}`)
+        .then(response => response.json())
+        .then(data => {
+            if (data.error) {
+                alert('Hata: ' + data.error);
+                return;
+            }
+            
+            // Ayları sırala ve Türkçe ay isimlerine çevir
+            const monthNames = ['Ocak', 'Şubat', 'Mart', 'Nisan', 'Mayıs', 'Haziran',
+                               'Temmuz', 'Ağustos', 'Eylül', 'Ekim', 'Kasım', 'Aralık'];
+            
+            const sortedMonths = Object.keys(data).sort();
+            const labels = sortedMonths.map(month => {
+                const monthNum = parseInt(month.split('-')[1]) - 1;
+                return monthNames[monthNum];
+            });
+            const values = sortedMonths.map(month => data[month]);
+            
+            // Grafik oluştur veya güncelle
+            if (monthlyAveragesChart) {
+                monthlyAveragesChart.destroy();
+            }
+            
+            const ctx = document.getElementById('monthlyAveragesChart').getContext('2d');
+            monthlyAveragesChart = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: 'Aylık Watt Ortalaması',
+                        data: values,
+                        backgroundColor: [
+                            'rgba(255, 99, 132, 0.6)',
+                            'rgba(54, 162, 235, 0.6)',
+                            'rgba(255, 205, 86, 0.6)',
+                            'rgba(75, 192, 192, 0.6)',
+                            'rgba(153, 102, 255, 0.6)',
+                            'rgba(255, 159, 64, 0.6)',
+                            'rgba(199, 199, 199, 0.6)',
+                            'rgba(83, 102, 255, 0.6)',
+                            'rgba(255, 99, 255, 0.6)',
+                            'rgba(99, 255, 132, 0.6)',
+                            'rgba(255, 132, 99, 0.6)',
+                            'rgba(132, 99, 255, 0.6)'
+                        ],
+                        borderColor: [
+                            'rgba(255, 99, 132, 1)',
+                            'rgba(54, 162, 235, 1)',
+                            'rgba(255, 205, 86, 1)',
+                            'rgba(75, 192, 192, 1)',
+                            'rgba(153, 102, 255, 1)',
+                            'rgba(255, 159, 64, 1)',
+                            'rgba(199, 199, 199, 1)',
+                            'rgba(83, 102, 255, 1)',
+                            'rgba(255, 99, 255, 1)',
+                            'rgba(99, 255, 132, 1)',
+                            'rgba(255, 132, 99, 1)',
+                            'rgba(132, 99, 255, 1)'
+                        ],
+                        borderWidth: 1
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            title: {
+                                display: true,
+                                text: 'Watt'
+                            }
+                        },
+                        x: {
+                            title: {
+                                display: true,
+                                text: 'Ay'
+                            }
+                        }
+                    }
+                }
+            });
+        })
+        .catch(error => {
+            console.error('Error:', error);
+            alert('Veri yüklenirken hata oluştu!');
+        });
+}
+
+// Sayfa yüklendiğinde bu yılı varsayılan olarak ayarla
+document.addEventListener('DOMContentLoaded', function() {
+    const today = new Date();
+    document.getElementById('yearSelect').value = today.getFullYear();
+    loadMonthlyAverages(); // Otomatik olarak verileri yükle
+});
+</script>
+{% endblock %}

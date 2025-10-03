@@ -1,0 +1,127 @@
+{% extends "base.html" %}
+
+{% block title %}Aylık Analiz - Panel Veri Analizi{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-12">
+        <h1 class="mb-4">Aylık Analiz</h1>
+        <p>Bir ay seçin ve o aydaki her günün watt ortalamasını görüntüleyin.</p>
+    </div>
+</div>
+
+<div class="row mb-4">
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-body">
+                <label for="yearSelect" class="form-label">Yıl:</label>
+                <select class="form-control mb-2" id="yearSelect">
+                    <option value="2024">2024</option>
+                    <option value="2023">2023</option>
+                    <option value="2022">2022</option>
+                </select>
+                <label for="monthSelect" class="form-label">Ay:</label>
+                <select class="form-control mb-2" id="monthSelect">
+                    <option value="1">Ocak</option>
+                    <option value="2">Şubat</option>
+                    <option value="3">Mart</option>
+                    <option value="4">Nisan</option>
+                    <option value="5">Mayıs</option>
+                    <option value="6">Haziran</option>
+                    <option value="7">Temmuz</option>
+                    <option value="8">Ağustos</option>
+                    <option value="9">Eylül</option>
+                    <option value="10">Ekim</option>
+                    <option value="11">Kasım</option>
+                    <option value="12">Aralık</option>
+                </select>
+                <button class="btn btn-primary" onclick="loadMonthlyData()">Verileri Yükle</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <h5>Aylık Watt Ortalamaları</h5>
+            </div>
+            <div class="card-body">
+                <canvas id="monthlyChart" width="400" height="200"></canvas>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+let monthlyChart = null;
+
+function loadMonthlyData() {
+    const year = document.getElementById('yearSelect').value;
+    const month = document.getElementById('monthSelect').value;
+    
+    fetch(`/api/monthly_data/${year}/${month}`)
+        .then(response => response.json())
+        .then(data => {
+            if (data.error) {
+                alert('Hata: ' + data.error);
+                return;
+            }
+            
+            // Tarihleri sırala
+            const sortedDates = Object.keys(data).sort();
+            const values = sortedDates.map(date => data[date]);
+            
+            // Grafik oluştur veya güncelle
+            if (monthlyChart) {
+                monthlyChart.destroy();
+            }
+            
+            const ctx = document.getElementById('monthlyChart').getContext('2d');
+            monthlyChart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: sortedDates,
+                    datasets: [{
+                        label: 'Günlük Watt Ortalaması',
+                        data: values,
+                        borderColor: 'rgb(153, 102, 255)',
+                        backgroundColor: 'rgba(153, 102, 255, 0.2)',
+                        tension: 0.1
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            title: {
+                                display: true,
+                                text: 'Watt'
+                            }
+                        },
+                        x: {
+                            title: {
+                                display: true,
+                                text: 'Gün'
+                            }
+                        }
+                    }
+                }
+            });
+        })
+        .catch(error => {
+            console.error('Error:', error);
+            alert('Veri yüklenirken hata oluştu!');
+        });
+}
+
+// Sayfa yüklendiğinde bu ayı varsayılan olarak ayarla
+document.addEventListener('DOMContentLoaded', function() {
+    const today = new Date();
+    document.getElementById('yearSelect').value = today.getFullYear();
+    document.getElementById('monthSelect').value = today.getMonth() + 1;
+});
+</script>
+{% endblock %}

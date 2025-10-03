@@ -1,0 +1,110 @@
+{% extends "base.html" %}
+
+{% block title %}Günlük Analiz - Panel Veri Analizi{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-12">
+        <h1 class="mb-4">Günlük Analiz</h1>
+        <p>Son 1 yıl içinden bir gün seçin ve o günün saatlik watt ortalamalarını görüntüleyin.</p>
+    </div>
+</div>
+
+<div class="row mb-4">
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-body">
+                <label for="dateSelect" class="form-label">Tarih Seçin:</label>
+                <input type="date" class="form-control" id="dateSelect">
+                <button class="btn btn-primary mt-2" onclick="loadDailyData()">Verileri Yükle</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <h5>Saatlik Watt Ortalamaları</h5>
+            </div>
+            <div class="card-body">
+                <canvas id="dailyChart" width="400" height="200"></canvas>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+let dailyChart = null;
+
+function loadDailyData() {
+    const selectedDate = document.getElementById('dateSelect').value;
+    if (!selectedDate) {
+        alert('Lütfen bir tarih seçin!');
+        return;
+    }
+    
+    fetch(`/api/daily_data/${selectedDate}`)
+        .then(response => response.json())
+        .then(data => {
+            if (data.error) {
+                alert('Hata: ' + data.error);
+                return;
+            }
+            
+            // Grafik verilerini hazırla
+            const hours = Object.keys(data).sort();
+            const values = hours.map(hour => data[hour]);
+            
+            // Grafik oluştur veya güncelle
+            if (dailyChart) {
+                dailyChart.destroy();
+            }
+            
+            const ctx = document.getElementById('dailyChart').getContext('2d');
+            dailyChart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: hours.map(hour => hour + ':00'),
+                    datasets: [{
+                        label: 'Watt Ortalaması',
+                        data: values,
+                        borderColor: 'rgb(75, 192, 192)',
+                        backgroundColor: 'rgba(75, 192, 192, 0.2)',
+                        tension: 0.1
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            title: {
+                                display: true,
+                                text: 'Watt'
+                            }
+                        },
+                        x: {
+                            title: {
+                                display: true,
+                                text: 'Saat'
+                            }
+                        }
+                    }
+                }
+            });
+        })
+        .catch(error => {
+            console.error('Error:', error);
+            alert('Veri yüklenirken hata oluştu!');
+        });
+}
+
+// Sayfa yüklendiğinde bugünün tarihini varsayılan olarak ayarla
+document.addEventListener('DOMContentLoaded', function() {
+    const today = new Date().toISOString().split('T')[0];
+    document.getElementById('dateSelect').value = today;
+});
+</script>
+{% endblock %}

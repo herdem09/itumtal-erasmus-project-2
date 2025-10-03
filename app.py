@@ -1,339 +1,260 @@
 from flask import Flask, request, jsonify, render_template
-import psycopg2
-from psycopg2.extras import RealDictCursor
+from flask_sqlalchemy import SQLAlchemy
 from datetime import datetime, timedelta
+import pandas as pd
 import os
-from dotenv import load_dotenv
-from apscheduler.schedulers.background import BackgroundScheduler
-import atexit
-
-load_dotenv()
+import json
 
 app = Flask(__name__)
+app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///panel_data.db'
+app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
-# Veritabanı bağlantısı
-def get_db_connection():
-    conn = psycopg2.connect(
-        host=os.getenv('DB_HOST', 'localhost'),
-        database=os.getenv('DB_NAME', 'enerji_monitor'),
-        user=os.getenv('DB_USER', 'postgres'),
-        password=os.getenv('DB_PASSWORD', 'password'),
-        port=os.getenv('DB_PORT', '5432')
-    )
-    return conn
+db = SQLAlchemy(app)
 
-# Veritabanı tablolarını oluştur
-def init_db():
-    conn = get_db_connection()
-    cur = conn.cursor()
-    
-    # Ana veri tablosu
-    cur.execute('''
-        CREATE TABLE IF NOT EXISTS sensor_data (
-            id SERIAL PRIMARY KEY,
-            zaman TIME NOT NULL,
-            tarih DATE NOT NULL,
-            watt REAL NOT NULL,
-            kotuhava BOOLEAN NOT NULL,
-            panel_acik_mi BOOLEAN NOT NULL,
-            paneli_su_yap VARCHAR(10) NOT NULL,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-    ''')
-    
-    # Saatlik ortalama tablosu
-    cur.execute('''
-        CREATE TABLE IF NOT EXISTS hourly_averages (
-            id SERIAL PRIMARY KEY,
-            tarih DATE NOT NULL,
-            saat INTEGER NOT NULL,
-            ortalama_watt REAL NOT NULL,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            UNIQUE(tarih, saat)
-        )
-    ''')
-    
-    # Panel durumu tablosu
-    cur.execute('''
-        CREATE TABLE IF NOT EXISTS panel_status (
-            id SERIAL PRIMARY KEY,
-            panel_acik_mi BOOLEAN NOT NULL,
-            kotuhava BOOLEAN NOT NULL,
-            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-    ''')
-    
-    conn.commit()
-    cur.close()
-    conn.close()
+# Veritabanı modeli
+class PanelData(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    zaman = db.Column(db.String(10), nullable=False)
+    tarih = db.Column(db.String(10), nullable=False)
+    watt = db.Column(db.Float, nullable=False)
+    kotu_hava = db.Column(db.Boolean, nullable=False)
+    panel_acik_mi = db.Column(db.Boolean, nullable=False)
+    yon = db.Column(db.Integer, nullable=False)
+    paneli_su_yap = db.Column(db.String(10), nullable=False)
+    timestamp = db.Column(db.DateTime, default=datetime.utcnow)
 
-# Saatlik ortalama hesaplama
-def calculate_hourly_average():
-    conn = get_db_connection()
-    cur = conn.cursor()
-    
-    # Son saatin verilerini al
-    now = datetime.now()
-    current_hour = now.hour
-    current_date = now.date()
-    
-    cur.execute('''
-        SELECT AVG(watt) as avg_watt
-        FROM sensor_data 
-        WHERE tarih = %s AND EXTRACT(hour FROM zaman) = %s
-    ''', (current_date, current_hour))
-    
-    result = cur.fetchone()
-    if result and result[0] is not None:
-        avg_watt = result[0]
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'zaman': self.zaman,
+            'tarih': self.tarih,
+            'watt': self.watt,
+            'kotu_hava': self.kotu_hava,
+            'panel_acik_mi': self.panel_acik_mi,
+            'yon': self.yon,
+            'paneli_su_yap': self.paneli_su_yap,
+            'timestamp': self.timestamp.isoformat()
+        }
+
+# CSV dosyası işlemleri
+CSV_FILE = 'panel_status.csv'
+
+def update_csv(kotu_hava, panel_acik_mi, yon, paneli_su_yap):
+    """CSV dosyasını günceller - sadece en son durumu tutar"""
+    data = {
+        'kotu_hava': kotu_hava,
+        'panel_acik_mi': panel_acik_mi,
+        'yon': yon,
+        'paneli_su_yap': paneli_su_yap,
+        'timestamp': datetime.now().isoformat()
+    }
+    df = pd.DataFrame([data])
+    df.to_csv(CSV_FILE, index=False)
+
+def get_csv_data():
+    """CSV dosyasından veri okur"""
+    if os.path.exists(CSV_FILE):
+        df = pd.read_csv(CSV_FILE)
+        return df.iloc[-1].to_dict() if not df.empty else {}
+    return {}
+
+# API endpointleri
+@app.route('/api/data', methods=['POST'])
+def receive_data():
+    """Panel verilerini alır ve veritabanına kaydeder"""
+    try:
+        data = request.get_json()
         
-        # Saatlik ortalamayı kaydet
-        cur.execute('''
-            INSERT INTO hourly_averages (tarih, saat, ortalama_watt)
-            VALUES (%s, %s, %s)
-            ON CONFLICT (tarih, saat) 
-            DO UPDATE SET ortalama_watt = %s
-        ''', (current_date, current_hour, avg_watt, avg_watt))
+        # Veri doğrulama
+        required_fields = ['zaman', 'tarih', 'watt', 'kotu_hava', 'panel_acik_mi', 'yon', 'paneli_su_yap']
+        for field in required_fields:
+            if field not in data:
+                return jsonify({'error': f'Eksik alan: {field}'}), 400
         
-        conn.commit()
+        # Veri tiplerini kontrol et
+        watt = float(data['watt'])
+        kotu_hava = bool(data['kotu_hava'])
+        panel_acik_mi = bool(data['panel_acik_mi'])
+        yon = int(data['yon'])
+        
+        # Veritabanına kaydet
+        panel_data = PanelData(
+            zaman=data['zaman'],
+            tarih=data['tarih'],
+            watt=watt,
+            kotu_hava=kotu_hava,
+            panel_acik_mi=panel_acik_mi,
+            yon=yon,
+            paneli_su_yap=data['paneli_su_yap']
+        )
+        
+        db.session.add(panel_data)
+        db.session.commit()
+        
+        # CSV dosyasını güncelle
+        update_csv(kotu_hava, panel_acik_mi, yon, data['paneli_su_yap'])
+        
+        return jsonify({'message': 'Veri başarıyla kaydedildi', 'id': panel_data.id}), 201
+        
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/status', methods=['GET'])
+def get_status():
+    """Mevcut durumu döndürür"""
+    csv_data = get_csv_data()
+    latest_data = PanelData.query.order_by(PanelData.timestamp.desc()).first()
     
-    cur.close()
-    conn.close()
+    return jsonify({
+        'csv_status': csv_data,
+        'latest_data': latest_data.to_dict() if latest_data else None
+    })
 
-# Scheduler'ı başlat
-scheduler = BackgroundScheduler()
-scheduler.add_job(func=calculate_hourly_average, trigger="cron", hour="*", minute=0)
-scheduler.start()
-
-# Uygulama kapatılırken scheduler'ı durdur
-atexit.register(lambda: scheduler.shutdown())
-
-# Ana sayfa
+# Web arayüzü route'ları
 @app.route('/')
 def index():
     return render_template('index.html')
 
-# API endpoint - veri kaydetme
-@app.route('/api/data', methods=['POST'])
-def save_data():
+@app.route('/daily')
+def daily():
+    return render_template('daily.html')
+
+@app.route('/yearly')
+def yearly():
+    return render_template('yearly.html')
+
+@app.route('/weekly')
+def weekly():
+    return render_template('weekly.html')
+
+@app.route('/monthly')
+def monthly():
+    return render_template('monthly.html')
+
+@app.route('/monthly_averages')
+def monthly_averages():
+    return render_template('monthly_averages.html')
+
+# API endpointleri - grafik verileri için
+@app.route('/api/daily_data/<date>')
+def get_daily_data(date):
+    """Belirli bir günün saatlik verilerini döndürür"""
     try:
-        data = request.get_json()
+        data = PanelData.query.filter_by(tarih=date).all()
+        hourly_data = {}
         
-        # Gerekli alanları kontrol et
-        required_fields = ['zaman', 'tarih', 'watt', 'kotuhava', 'panel_acik_mi', 'paneli_su_yap']
-        for field in required_fields:
-            if field not in data:
-                return jsonify({'error': f'{field} alanı gerekli'}), 400
+        for record in data:
+            hour = record.zaman.split(':')[0]  # Saat kısmını al
+            if hour not in hourly_data:
+                hourly_data[hour] = []
+            hourly_data[hour].append(record.watt)
         
-        conn = get_db_connection()
-        cur = conn.cursor()
+        # Saatlik ortalamaları hesapla
+        hourly_averages = {}
+        for hour in range(24):
+            hour_str = f"{hour:02d}"
+            if hour_str in hourly_data:
+                hourly_averages[hour_str] = sum(hourly_data[hour_str]) / len(hourly_data[hour_str])
+            else:
+                hourly_averages[hour_str] = 0
         
-        # Veriyi kaydet
-        cur.execute('''
-            INSERT INTO sensor_data (zaman, tarih, watt, kotuhava, panel_acik_mi, paneli_su_yap)
-            VALUES (%s, %s, %s, %s, %s, %s)
-        ''', (
-            data['zaman'],
-            data['tarih'],
-            data['watt'],
-            data['kotuhava'],
-            data['panel_acik_mi'],
-            data['paneli_su_yap']
-        ))
-        
-        # Panel durumunu güncelle
-        cur.execute('''
-            INSERT INTO panel_status (panel_acik_mi, kotuhava)
-            VALUES (%s, %s)
-        ''', (data['panel_acik_mi'], data['kotuhava']))
-        
-        conn.commit()
-        cur.close()
-        conn.close()
-        
-        return jsonify({'message': 'Veri başarıyla kaydedildi'}), 200
-        
+        return jsonify(hourly_averages)
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
-# API endpoint - günlük saatlik ortalamalar
-@app.route('/api/daily-hourly')
-def get_daily_hourly():
+@app.route('/api/yearly_data')
+def get_yearly_data():
+    """Yıl boyunca günlük ortalamaları döndürür"""
     try:
-        conn = get_db_connection()
-        cur = conn.cursor(cursor_factory=RealDictCursor)
+        data = PanelData.query.all()
+        daily_data = {}
         
-        cur.execute('''
-            SELECT saat, ortalama_watt
-            FROM hourly_averages 
-            WHERE tarih = CURRENT_DATE
-            ORDER BY saat
-        ''')
+        for record in data:
+            date = record.tarih
+            if date not in daily_data:
+                daily_data[date] = []
+            daily_data[date].append(record.watt)
         
-        data = cur.fetchall()
-        cur.close()
-        conn.close()
+        # Günlük ortalamaları hesapla
+        daily_averages = {}
+        for date, watts in daily_data.items():
+            daily_averages[date] = sum(watts) / len(watts)
         
-        return jsonify([dict(row) for row in data])
-        
+        return jsonify(daily_averages)
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
-# API endpoint - anlık veriler (o saat)
-@app.route('/api/current-hour')
-def get_current_hour():
+@app.route('/api/weekly_data/<start_date>')
+def get_weekly_data(start_date):
+    """Belirli bir haftanın günlük verilerini döndürür"""
     try:
-        conn = get_db_connection()
-        cur = conn.cursor(cursor_factory=RealDictCursor)
+        start_dt = datetime.strptime(start_date, '%Y-%m-%d')
+        weekly_data = {}
         
-        now = datetime.now()
-        current_hour = now.hour
+        for i in range(7):
+            current_date = start_dt + timedelta(days=i)
+            date_str = current_date.strftime('%Y-%m-%d')
+            
+            data = PanelData.query.filter_by(tarih=date_str).all()
+            if data:
+                watts = [record.watt for record in data]
+                weekly_data[date_str] = sum(watts) / len(watts)
+            else:
+                weekly_data[date_str] = 0
         
-        cur.execute('''
-            SELECT zaman, watt, kotuhava, panel_acik_mi
-            FROM sensor_data 
-            WHERE tarih = CURRENT_DATE AND EXTRACT(hour FROM zaman) = %s
-            ORDER BY zaman
-        ''', (current_hour,))
-        
-        data = cur.fetchall()
-        cur.close()
-        conn.close()
-        
-        return jsonify([dict(row) for row in data])
-        
+        return jsonify(weekly_data)
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
-# API endpoint - haftalık saatlik ortalamalar
-@app.route('/api/weekly-hourly')
-def get_weekly_hourly():
+@app.route('/api/monthly_data/<year>/<month>')
+def get_monthly_data(year, month):
+    """Belirli bir ayın günlük verilerini döndürür"""
     try:
-        conn = get_db_connection()
-        cur = conn.cursor(cursor_factory=RealDictCursor)
+        data = PanelData.query.filter(
+            PanelData.tarih.like(f'{year}-{month:02d}-%')
+        ).all()
         
-        cur.execute('''
-            SELECT tarih, saat, AVG(ortalama_watt) as ortalama_watt
-            FROM hourly_averages 
-            WHERE tarih >= CURRENT_DATE - INTERVAL '7 days'
-            GROUP BY tarih, saat
-            ORDER BY tarih, saat
-        ''')
+        daily_data = {}
+        for record in data:
+            date = record.tarih
+            if date not in daily_data:
+                daily_data[date] = []
+            daily_data[date].append(record.watt)
         
-        data = cur.fetchall()
-        cur.close()
-        conn.close()
+        # Günlük ortalamaları hesapla
+        daily_averages = {}
+        for date, watts in daily_data.items():
+            daily_averages[date] = sum(watts) / len(watts)
         
-        return jsonify([dict(row) for row in data])
-        
+        return jsonify(daily_averages)
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
-# API endpoint - aylık günlük ortalamalar
-@app.route('/api/monthly-daily')
-def get_monthly_daily():
+@app.route('/api/monthly_averages/<year>')
+def get_monthly_averages(year):
+    """Belirli bir yılın aylık ortalamalarını döndürür"""
     try:
-        conn = get_db_connection()
-        cur = conn.cursor(cursor_factory=RealDictCursor)
+        data = PanelData.query.filter(
+            PanelData.tarih.like(f'{year}-%')
+        ).all()
         
-        cur.execute('''
-            SELECT tarih, AVG(ortalama_watt) as ortalama_watt
-            FROM hourly_averages 
-            WHERE EXTRACT(year FROM tarih) = EXTRACT(year FROM CURRENT_DATE)
-            AND EXTRACT(month FROM tarih) = EXTRACT(month FROM CURRENT_DATE)
-            GROUP BY tarih
-            ORDER BY tarih
-        ''')
+        monthly_data = {}
+        for record in data:
+            month = record.tarih[:7]  # YYYY-MM formatında
+            if month not in monthly_data:
+                monthly_data[month] = []
+            monthly_data[month].append(record.watt)
         
-        data = cur.fetchall()
-        cur.close()
-        conn.close()
+        # Aylık ortalamaları hesapla
+        monthly_averages = {}
+        for month, watts in monthly_data.items():
+            monthly_averages[month] = sum(watts) / len(watts)
         
-        return jsonify([dict(row) for row in data])
-        
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
-
-# API endpoint - yıllık aylık ortalamalar
-@app.route('/api/yearly-monthly')
-def get_yearly_monthly():
-    try:
-        conn = get_db_connection()
-        cur = conn.cursor(cursor_factory=RealDictCursor)
-        
-        cur.execute('''
-            SELECT EXTRACT(month FROM tarih) as ay, AVG(ortalama_watt) as ortalama_watt
-            FROM hourly_averages 
-            WHERE EXTRACT(year FROM tarih) = EXTRACT(year FROM CURRENT_DATE)
-            GROUP BY EXTRACT(month FROM tarih)
-            ORDER BY ay
-        ''')
-        
-        data = cur.fetchall()
-        cur.close()
-        conn.close()
-        
-        return jsonify([dict(row) for row in data])
-        
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
-
-# API endpoint - panel durumu
-@app.route('/api/panel-status')
-def get_panel_status():
-    try:
-        conn = get_db_connection()
-        cur = conn.cursor(cursor_factory=RealDictCursor)
-        
-        cur.execute('''
-            SELECT panel_acik_mi, kotuhava, updated_at
-            FROM panel_status 
-            ORDER BY updated_at DESC 
-            LIMIT 1
-        ''')
-        
-        data = cur.fetchone()
-        cur.close()
-        conn.close()
-        
-        if data:
-            return jsonify(dict(data))
-        else:
-            return jsonify({'panel_acik_mi': False, 'kotuhava': False})
-        
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
-
-# API endpoint - panel kontrolü
-@app.route('/api/panel-control', methods=['POST'])
-def control_panel():
-    try:
-        data = request.get_json()
-        action = data.get('action')  # 'ac' veya 'kapat'
-        
-        if action not in ['ac', 'kapat']:
-            return jsonify({'error': 'Geçersiz aksiyon'}), 400
-        
-        panel_acik_mi = action == 'ac'
-        
-        conn = get_db_connection()
-        cur = conn.cursor()
-        
-        # Panel durumunu güncelle
-        cur.execute('''
-            INSERT INTO panel_status (panel_acik_mi, kotuhava)
-            VALUES (%s, %s)
-        ''', (panel_acik_mi, False))  # kotuhava varsayılan olarak False
-        
-        conn.commit()
-        cur.close()
-        conn.close()
-        
-        return jsonify({'message': f'Panel {action}ıldı', 'panel_acik_mi': panel_acik_mi})
-        
+        return jsonify(monthly_averages)
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
 if __name__ == '__main__':
-    init_db()
+    with app.app_context():
+        db.create_all()
     app.run(debug=True, host='0.0.0.0', port=5000)

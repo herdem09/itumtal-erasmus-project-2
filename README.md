@@ -1,135 +1,157 @@
-# Enerji İzleme ve Kontrol Sistemi
+# Panel Veri Toplama ve Görselleştirme Sunucusu
 
-Bu proje, güneş paneli enerji üretimini izlemek ve kontrol etmek için geliştirilmiş bir web uygulamasıdır.
+Bu proje, güneş paneli verilerini toplayan, veritabanında saklayan ve web arayüzü ile görselleştiren bir Flask sunucusudur.
 
 ## Özellikler
 
-### API Endpoints
-- **POST /api/data** - Sensör verilerini kaydetme
-- **GET /api/daily-hourly** - Günlük saatlik ortalamalar
-- **GET /api/current-hour** - O saat içindeki anlık veriler
-- **GET /api/weekly-hourly** - Haftalık saatlik ortalamalar
-- **GET /api/monthly-daily** - Aylık günlük ortalamalar
-- **GET /api/yearly-monthly** - Yıllık aylık ortalamalar
-- **GET /api/panel-status** - Panel durumu bilgisi
-- **POST /api/panel-control** - Panel kontrolü (aç/kapat)
+### API Endpointleri
+- **POST /api/data**: Panel verilerini alır ve veritabanına kaydeder
+- **GET /api/status**: Mevcut durumu döndürür
+- **GET /api/daily_data/<date>**: Belirli bir günün saatlik verilerini döndürür
+- **GET /api/yearly_data**: Yıl boyunca günlük ortalamaları döndürür
+- **GET /api/weekly_data/<start_date>**: Belirli bir haftanın günlük verilerini döndürür
+- **GET /api/monthly_data/<year>/<month>**: Belirli bir ayın günlük verilerini döndürür
+- **GET /api/monthly_averages/<year>**: Belirli bir yılın aylık ortalamalarını döndürür
+
+### Veri Yapısı
+API aşağıdaki 7 değeri alır:
+- `zaman` (string): Saat bilgisi (HH:MM formatında)
+- `tarih` (string): Tarih bilgisi (YYYY-MM-DD formatında)
+- `watt` (float): Watt değeri
+- `kotu_hava` (bool): Kötü hava durumu
+- `panel_acik_mi` (bool): Panel açık mı durumu
+- `yon` (int): Yön bilgisi
+- `paneli_su_yap` (string): Panel kontrolü ("aç" veya "kapat")
+
+### Veri Saklama
+- Tüm veriler SQLite veritabanında saklanır
+- `kotu_hava`, `panel_acik_mi`, `yon` ve `paneli_su_yap` değerleri ayrıca CSV dosyasında güncel olarak tutulur
 
 ### Web Arayüzü
-- 5 farklı grafik görünümü
-- Gerçek zamanlı panel durumu
-- Panel kontrol butonları
-- Test verisi gönderme özelliği
-- Responsive tasarım
+5 farklı analiz sayfası:
+1. **Günlük Analiz**: Belirli bir günün saatlik watt ortalamaları
+2. **Yıllık Analiz**: Yıl boyunca günlük watt ortalamaları
+3. **Haftalık Analiz**: Belirli bir haftanın günlük ortalamaları
+4. **Aylık Analiz**: Belirli bir ayın günlük ortalamaları
+5. **Aylık Ortalamalar**: Yıl boyunca aylık watt ortalamaları
+
+Her sayfada mevcut durum bilgileri (kötü hava, panel açık mı, yön, panel şu yap) ve son watt değeri gösterilir.
 
 ## Kurulum
 
-### Gereksinimler
-- Python 3.7+
-- PostgreSQL 12+
-- pip
-
-### Adımlar
-
-1. **Projeyi klonlayın:**
-```bash
-git clone <repository-url>
-cd enerji-monitor
-```
-
-2. **Sanal ortam oluşturun:**
-```bash
-python -m venv venv
-source venv/bin/activate  # Linux/Mac
-# veya
-venv\Scripts\activate  # Windows
-```
-
-3. **Bağımlılıkları yükleyin:**
+1. Gerekli paketleri yükleyin:
 ```bash
 pip install -r requirements.txt
 ```
 
-4. **PostgreSQL veritabanı oluşturun:**
-```sql
-CREATE DATABASE enerji_monitor;
-```
-
-5. **Çevre değişkenlerini ayarlayın:**
-```bash
-cp .env.example .env
-# .env dosyasını düzenleyerek veritabanı bilgilerinizi girin
-```
-
-6. **Uygulamayı çalıştırın:**
+2. Sunucuyu başlatın:
 ```bash
 python app.py
 ```
 
-Uygulama http://localhost:5000 adresinde çalışacaktır.
+3. Tarayıcınızda `http://localhost:5000` adresine gidin.
 
-## Veritabanı Şeması
-
-### sensor_data
-- `id` - Birincil anahtar
-- `zaman` - Zaman (TIME)
-- `tarih` - Tarih (DATE)
-- `watt` - Watt değeri (REAL)
-- `kotuhava` - Kötü hava durumu (BOOLEAN)
-- `panel_acik_mi` - Panel açık mı (BOOLEAN)
-- `paneli_su_yap` - Panel kontrolü (VARCHAR)
-- `created_at` - Oluşturulma zamanı (TIMESTAMP)
-
-### hourly_averages
-- `id` - Birincil anahtar
-- `tarih` - Tarih (DATE)
-- `saat` - Saat (INTEGER)
-- `ortalama_watt` - Ortalama watt (REAL)
-- `created_at` - Oluşturulma zamanı (TIMESTAMP)
-
-### panel_status
-- `id` - Birincil anahtar
-- `panel_acik_mi` - Panel açık mı (BOOLEAN)
-- `kotuhava` - Kötü hava durumu (BOOLEAN)
-- `updated_at` - Güncelleme zamanı (TIMESTAMP)
-
-## API Kullanımı
+## Kullanım
 
 ### Veri Gönderme
+Ana sayfadaki form ile veya doğrudan API'ye POST isteği göndererek veri ekleyebilirsiniz:
+
 ```bash
 curl -X POST http://localhost:5000/api/data \
   -H "Content-Type: application/json" \
   -d '{
-    "zaman": "14:30:00",
+    "zaman": "14:30",
     "tarih": "2024-01-15",
-    "watt": 750.5,
-    "kotuhava": false,
+    "watt": 150.5,
+    "kotu_hava": false,
     "panel_acik_mi": true,
+    "yon": 180,
     "paneli_su_yap": "aç"
   }'
 ```
 
-### Panel Kontrolü
-```bash
-curl -X POST http://localhost:5000/api/panel-control \
-  -H "Content-Type: application/json" \
-  -d '{"action": "ac"}'
-```
-
-## Otomatik İşlemler
-
-- Her saat başı otomatik olarak o saatin watt ortalaması hesaplanır ve kaydedilir
-- Panel durumu her 30 saniyede bir güncellenir
+### Analiz Sayfaları
+- **Günlük**: Tarih seçerek o günün saatlik analizini görün
+- **Yıllık**: Tüm yılın günlük ortalamalarını görün
+- **Haftalık**: Hafta başlangıç tarihi seçerek o haftanın analizini görün
+- **Aylık**: Yıl ve ay seçerek o ayın günlük analizini görün
+- **Aylık Ortalamalar**: Yıl seçerek o yılın aylık ortalamalarını görün
 
 ## Teknolojiler
 
-- **Backend:** Python Flask
-- **Veritabanı:** PostgreSQL
-- **Frontend:** HTML5, CSS3, JavaScript (ES6+)
-- **Grafik:** Chart.js
-- **UI Framework:** Bootstrap 5
-- **İkonlar:** Font Awesome
-- **Zamanlama:** APScheduler
+- **Backend**: Python Flask
+- **Veritabanı**: SQLite (SQLAlchemy ORM)
+- **Frontend**: HTML, CSS, JavaScript, Bootstrap, Chart.js
+- **Veri İşleme**: Pandas
+- **Grafik**: Chart.js
 
-## Lisans
+## Dosya Yapısı
 
-Bu proje MIT lisansı altında lisanslanmıştır.
+```
+├── app.py                 # Ana Flask uygulaması
+├── requirements.txt       # Python paket gereksinimleri
+├── README.md             # Bu dosya
+├── templates/            # HTML şablonları
+│   ├── base.html         # Temel şablon
+│   ├── index.html        # Ana sayfa
+│   ├── daily.html        # Günlük analiz
+│   ├── yearly.html       # Yıllık analiz
+│   ├── weekly.html       # Haftalık analiz
+│   ├── monthly.html      # Aylık analiz
+│   └── monthly_averages.html # Aylık ortalamalar
+├── panel_data.db         # SQLite veritabanı (otomatik oluşur)
+└── panel_status.csv      # Güncel durum CSV dosyası (otomatik oluşur)
+```
+
+## API Dokümantasyonu
+
+### POST /api/data
+Panel verilerini kaydeder.
+
+**Request Body:**
+```json
+{
+  "zaman": "14:30",
+  "tarih": "2024-01-15",
+  "watt": 150.5,
+  "kotu_hava": false,
+  "panel_acik_mi": true,
+  "yon": 180,
+  "paneli_su_yap": "aç"
+}
+```
+
+**Response:**
+```json
+{
+  "message": "Veri başarıyla kaydedildi",
+  "id": 1
+}
+```
+
+### GET /api/status
+Mevcut durumu döndürür.
+
+**Response:**
+```json
+{
+  "csv_status": {
+    "kotu_hava": false,
+    "panel_acik_mi": true,
+    "yon": 180,
+    "paneli_su_yap": "aç",
+    "timestamp": "2024-01-15T14:30:00"
+  },
+  "latest_data": {
+    "id": 1,
+    "zaman": "14:30",
+    "tarih": "2024-01-15",
+    "watt": 150.5,
+    "kotu_hava": false,
+    "panel_acik_mi": true,
+    "yon": 180,
+    "paneli_su_yap": "aç",
+    "timestamp": "2024-01-15T14:30:00"
+  }
+}
+```
