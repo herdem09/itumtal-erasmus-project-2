@@ -59,42 +59,30 @@ def get_csv_data():
     return {}
 
 # API endpointleri
-@app.route('/api/data', methods=['POST'])
-def receive_data():
-    """Panel verilerini alır ve veritabanına kaydeder"""
+@app.route('/api/panel_control', methods=['POST'])
+def panel_control():
+    """Panel kontrol komutunu alır (sadece paneli_su_yap)"""
     try:
         data = request.get_json()
         
         # Veri doğrulama
-        required_fields = ['zaman', 'tarih', 'watt', 'kotu_hava', 'panel_acik_mi', 'yon', 'paneli_su_yap']
-        for field in required_fields:
-            if field not in data:
-                return jsonify({'error': f'Eksik alan: {field}'}), 400
+        if 'paneli_su_yap' not in data:
+            return jsonify({'error': 'Eksik alan: paneli_su_yap'}), 400
         
-        # Veri tiplerini kontrol et
-        watt = float(data['watt'])
-        kotu_hava = bool(data['kotu_hava'])
-        panel_acik_mi = bool(data['panel_acik_mi'])
-        yon = int(data['yon'])
+        # Veri tipini kontrol et
+        paneli_su_yap = bool(data['paneli_su_yap'])
         
-        # Veritabanına kaydet
-        panel_data = PanelData(
-            zaman=data['zaman'],
-            tarih=data['tarih'],
-            watt=watt,
-            kotu_hava=kotu_hava,
-            panel_acik_mi=panel_acik_mi,
-            yon=yon,
-            paneli_su_yap=data['paneli_su_yap']
-        )
+        # Mevcut CSV verilerini oku
+        csv_data = get_csv_data()
         
-        db.session.add(panel_data)
-        db.session.commit()
+        # CSV dosyasını güncelle (diğer değerler aynı kalır)
+        kotu_hava = csv_data.get('kotu_hava', False)
+        panel_acik_mi = csv_data.get('panel_acik_mi', False)
+        yon = csv_data.get('yon', 0)
         
-        # CSV dosyasını güncelle
-        update_csv(kotu_hava, panel_acik_mi, yon, data['paneli_su_yap'])
+        update_csv(kotu_hava, panel_acik_mi, yon, paneli_su_yap)
         
-        return jsonify({'message': 'Veri başarıyla kaydedildi', 'id': panel_data.id}), 201
+        return jsonify({'message': 'Panel kontrol komutu alındı', 'paneli_su_yap': paneli_su_yap}), 200
         
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -251,6 +239,43 @@ def get_monthly_averages(year):
             monthly_averages[month] = sum(watts) / len(watts)
         
         return jsonify(monthly_averages)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/add_sample_data', methods=['POST'])
+def add_sample_data():
+    """Test için örnek veri ekler"""
+    try:
+        data = request.get_json()
+        
+        # Varsayılan değerler
+        zaman = data.get('zaman', datetime.now().strftime('%H:%M'))
+        tarih = data.get('tarih', datetime.now().strftime('%Y-%m-%d'))
+        watt = data.get('watt', 100.0)
+        kotu_hava = data.get('kotu_hava', False)
+        panel_acik_mi = data.get('panel_acik_mi', True)
+        yon = data.get('yon', 180)
+        paneli_su_yap = data.get('paneli_su_yap', 'aç')
+        
+        # Veritabanına kaydet
+        panel_data = PanelData(
+            zaman=zaman,
+            tarih=tarih,
+            watt=watt,
+            kotu_hava=kotu_hava,
+            panel_acik_mi=panel_acik_mi,
+            yon=yon,
+            paneli_su_yap=paneli_su_yap
+        )
+        
+        db.session.add(panel_data)
+        db.session.commit()
+        
+        # CSV dosyasını güncelle
+        update_csv(kotu_hava, panel_acik_mi, yon, paneli_su_yap)
+        
+        return jsonify({'message': 'Örnek veri eklendi', 'id': panel_data.id}), 201
+        
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 

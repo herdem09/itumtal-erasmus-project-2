@@ -5,8 +5,9 @@ Bu proje, güneş paneli verilerini toplayan, veritabanında saklayan ve web ara
 ## Özellikler
 
 ### API Endpointleri
-- **POST /api/data**: Panel verilerini alır ve veritabanına kaydeder
+- **POST /api/panel_control**: Panel kontrol komutunu alır (sadece paneli_su_yap: true/false)
 - **GET /api/status**: Mevcut durumu döndürür
+- **POST /api/add_sample_data**: Test için örnek veri ekler
 - **GET /api/daily_data/<date>**: Belirli bir günün saatlik verilerini döndürür
 - **GET /api/yearly_data**: Yıl boyunca günlük ortalamaları döndürür
 - **GET /api/weekly_data/<start_date>**: Belirli bir haftanın günlük verilerini döndürür
@@ -14,9 +15,10 @@ Bu proje, güneş paneli verilerini toplayan, veritabanında saklayan ve web ara
 - **GET /api/monthly_averages/<year>**: Belirli bir yılın aylık ortalamalarını döndürür
 
 ### Veri Yapısı
-API aşağıdaki 7 değeri alır:
-- `zaman` (string): Saat bilgisi (HH:MM formatında)
-- `tarih` (string): Tarih bilgisi (YYYY-MM-DD formatında)
+**Ana API Endpoint (/api/panel_control):**
+- `paneli_su_yap` (bool): Panel kontrolü (true = aç, false = kapat)
+
+**Test API Endpoint (/api/add_sample_data):**
 - `watt` (float): Watt değeri
 - `kotu_hava` (bool): Kötü hava durumu
 - `panel_acik_mi` (bool): Panel açık mı durumu
@@ -53,15 +55,24 @@ python app.py
 
 ## Kullanım
 
-### Veri Gönderme
-Ana sayfadaki form ile veya doğrudan API'ye POST isteği göndererek veri ekleyebilirsiniz:
+### Panel Kontrolü
+Panel kontrol komutunu göndermek için:
 
 ```bash
-curl -X POST http://localhost:5000/api/data \
+curl -X POST http://localhost:5000/api/panel_control \
   -H "Content-Type: application/json" \
   -d '{
-    "zaman": "14:30",
-    "tarih": "2024-01-15",
+    "paneli_su_yap": true
+  }'
+```
+
+### Test Verisi Ekleme
+Grafikleri test etmek için örnek veri ekleyebilirsiniz:
+
+```bash
+curl -X POST http://localhost:5000/api/add_sample_data \
+  -H "Content-Type: application/json" \
+  -d '{
     "watt": 150.5,
     "kotu_hava": false,
     "panel_acik_mi": true,
@@ -105,14 +116,30 @@ curl -X POST http://localhost:5000/api/data \
 
 ## API Dokümantasyonu
 
-### POST /api/data
-Panel verilerini kaydeder.
+### POST /api/panel_control
+Panel kontrol komutunu alır.
 
 **Request Body:**
 ```json
 {
-  "zaman": "14:30",
-  "tarih": "2024-01-15",
+  "paneli_su_yap": true
+}
+```
+
+**Response:**
+```json
+{
+  "message": "Panel kontrol komutu alındı",
+  "paneli_su_yap": true
+}
+```
+
+### POST /api/add_sample_data
+Test için örnek veri ekler.
+
+**Request Body:**
+```json
+{
   "watt": 150.5,
   "kotu_hava": false,
   "panel_acik_mi": true,
@@ -124,7 +151,7 @@ Panel verilerini kaydeder.
 **Response:**
 ```json
 {
-  "message": "Veri başarıyla kaydedildi",
+  "message": "Örnek veri eklendi",
   "id": 1
 }
 ```
